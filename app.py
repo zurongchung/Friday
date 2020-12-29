@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyautogui
 import qrcode
-from qrcode.image.pure import PymagingImage
 import tkinter
 from PIL import ImageTk, Image
 from skimage.metrics import structural_similarity as ssim
 import threading
+import subprocess
 
 # print(kb.key_to_scan_codes('1'))
 # home_for_scan = cv2.imread('samples/home.png')
@@ -52,25 +52,50 @@ qr_gen_status = True
 # samples in the samples folder
 sample_pay_btn = None
 sample_scan_btn = None
+sample_scan_failed_btn = None
 sample_done_btn = None
 sample_services_page = None
 sample_failed_symble = None
+sample_pwd_page = None
+sample_keypad_page  = None
 
-mouse_pos = {
-    'scan': {'x': 1893, 'y': 114},
-    'pay': {'x': 1752, 'y': 944},
-    'payment_done': {'x': 1878, 'y': 119},
-    'payment_failed': {'x': 1842, 'y': 114},
-    'order_list': {'x': 1842, 'y': 114}
-}
+
+# screen resolution of the machine
+screenSize = pyautogui.size()
+# print(screenSize)
+
+init_pos = {'x': 728.5, 'y': 52}
+
+def get_init_coords():
+    """
+    defines the initial coordinates by clicking on screen with mouse
+    """
+    pass
+
+am_width = screenSize.width - (init_pos['x'] * 2)
+am_height = screenSize.height - init_pos['y']
+# samples_width = 405
+margin_x = 22
 
 hot_area = {
-    'pay_btn': {'x': 1502, 'y': 922, 'w': 405, 'h': 50},
-    'pay_done': {'x': 1502, 'y': 115, 'w': 405, 'h': 88},
-    'pay_failed': {'x': 1502, 'y': 160, 'w': 405, 'h': 180},
-    'pay_scan': {'x': 1502, 'y': 90, 'w': 405, 'h': 52},
-    'pay_services': {'x': 1502, 'y': 90, 'w': 405, 'h': 52}
+    'pay_btn': {'x': init_pos['x'], 'y': 978, 'w': am_width, 'h': 102},
+    'pay_pwd': {'x': init_pos['x'], 'y': 325, 'w': am_width, 'h': 262},
+    'pay_keypad': {'x': init_pos['x'], 'y': 825, 'w': am_width, 'h': 255},
+    'pay_done': {'x': init_pos['x'], 'y':88, 'w': am_width, 'h': 88},
+    'pay_failed': {'x': init_pos['x'], 'y': 160, 'w': am_width, 'h': 220},
+    'pay_services': {'x': init_pos['x'], 'y': 92, 'w': am_width, 'h': 52},
+    'pay_scan': {'x': init_pos['x'], 'y': 92, 'w': am_width, 'h': 52},
+    'pay_scan_failed': {'x': (init_pos['x'] + 45), 'y': 477, 'w': (am_width - 45*2), 'h': 212}
 
+}
+
+mouse_pos = {
+    'pay': {'x': (init_pos['x'] + am_width / 2), 'y': 982},
+    'payment_done': {'x':(init_pos['x'] + am_width - margin_x), 'y': (88 + 88 /2)},
+    'payment_failed': {'x': 1118, 'y': 114},
+    'scan': {'x': (init_pos['x'] + am_width - margin_x), 'y': 114},
+    'scan_failed': {'x': (hot_area['pay_scan_failed']['x'] + hot_area['pay_scan_failed']['w'] / 2),
+    'y': (hot_area['pay_scan_failed']['y'] + hot_area['pay_scan_failed']['h'] * 3/4)}
 }
 
 def mse(imgA, imgB):
@@ -87,8 +112,7 @@ def cmp_img(imgA, imgB):
 # -----------------------------------------------------------------
 
 def init():
-    global data, d_index, secert_pwd, sample_pay_btn, sample_scan_btn,\
-         sample_done_btn, sample_failed_symble, sample_services_page
+    global data, d_index, secert_pwd, sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_scan_failed_btn
 
     secert_pwd = input('please provide your password for the payment...\n>>> ')
     print('@test: password is: %s' % secert_pwd)
@@ -99,36 +123,44 @@ def init():
     kb.add_hotkey('q', scan)
     kb.add_hotkey('space', press_pay_btn)
     kb.add_hotkey('w', close)
-    kb.add_hotkey('e', failed)
+    kb.add_hotkey('e', common_close_action)
     kb.add_hotkey('m', end_thread)
     kb.add_hotkey('r', reload_data)
     t0 = threading.Thread(target= vision_autobot, 
-        args=(sample_scan_btn, hot_area['pay_scan'], scan, 'press scan button'))
-    t1 = threading.Thread(target= vision_autobot, 
-        args=(sample_pay_btn, hot_area['pay_btn'], press_pay_btn, 'press pay button'))
-    t2 = threading.Thread(target= vision_autobot, 
-        args=(sample_done_btn, hot_area['pay_done'], close, 'auto done pay page'))
+        args=(sample_scan_btn, hot_area['pay_scan'], scan, 'watching scan button'))
+    # t1 = threading.Thread(target= vision_autobot, 
+    #     args=(sample_pay_btn, hot_area['pay_btn'], press_pay_btn, 'watching pay button'))
+    # t2 = threading.Thread(target= vision_autobot, 
+    #     args=(sample_done_btn, hot_area['pay_done'], close, 'watching done pay activity'))
     t3 = threading.Thread(target= vision_autobot, 
-        args=(sample_failed_symble, hot_area['pay_failed'], failed, 'auto close failed page'))
+        args=(sample_failed_symble, hot_area['pay_failed'], common_close_action, 'watching failed activity'))
     t4 = threading.Thread(target= prepare_qrcodes)
     t5 = threading.Thread(target= vision_autobot, 
-        args=(sample_services_page, hot_area['pay_services'], close_service_page, 'auto close services page'))
+        args=(sample_services_page, hot_area['pay_services'], common_close_action, 'watching services activity'))
+    # t6 = threading.Thread(target= vision_autobot, 
+    #     args=(sample_pwd_page, hot_area['pay_pwd'], enter_sec_keys, 'watching password activity'))
+    t7 = threading.Thread(target= vision_autobot, 
+        args=(sample_scan_failed_btn, hot_area['pay_scan_failed'], scan_failed, 'watching scan failed result'))
 
     t0.start()
-    t1.start()
-    t2.start()
+    # t1.start()
+    # t2.start()
     t3.start()
     t4.start()
     t5.start()
+    # t6.start()
+    t7.start()
 
     print('@test: application now functioning!')
     kb.wait('backspace')
     t0.join()
-    t1.join()
-    t2.join()
+    # t1.join()
+    # t2.join()
     t3.join()
     t4.join()
     t5.join()
+    # t6.join()
+    t7.join()
 
 def reload_data():
     init_data()
@@ -153,17 +185,20 @@ def end_thread():
     signal = False
 
 def load_samples():
-    global sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page 
+    global sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_keypad_page, sample_scan_failed_btn 
     # load the samples into memory
     print('@test: loading samples into memory...')
-    sample_pay_btn =  cv2.cvtColor(cv2.imread('samples/pay_btn_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_scan_btn =  cv2.cvtColor(cv2.imread('samples/pay_scan_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_done_btn =  cv2.cvtColor(cv2.imread('samples/pay_done_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_failed_symble =  cv2.cvtColor(cv2.imread('samples/pay_failed_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_services_page =  cv2.cvtColor(cv2.imread('samples/pay_services_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_pay_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_btn_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_scan_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_scan_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_scan_failed_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_scan_failed_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_done_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_done_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_pwd_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_pwd_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_keypad_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_keypad_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_failed_symble =  cv2.cvtColor(cv2.imread('samples/type2/pay_failed_color.png'), cv2.COLOR_BGR2GRAY) 
+    sample_services_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_services_color.png'), cv2.COLOR_BGR2GRAY) 
 
 # @todo when [frequency is too fast clicking wrong position will happen]
-def vision_autobot(target, area, callback, msg, accuracy=0.96, frequency=0.1):
+def vision_autobot(target, area, callback, msg, accuracy=0.94, frequency=0.1):
     """
     constantly take screenshot on defined area and take that to
     matching the sample image.
@@ -190,9 +225,6 @@ def vision_autobot(target, area, callback, msg, accuracy=0.96, frequency=0.1):
 
     _accuracy = accuracy
     _freq = frequency
-    # read the sample image from sample folder
-    # _sample = cv2.imread(target)
-    # _sample_gray = cv2.cvtColor(_sample, cv2.COLOR_BGR2GRAY)
     _sample_gray = target
     while signal:
         _target = pyautogui.screenshot(region=(_x, _y, _w, _h))
@@ -204,7 +236,10 @@ def vision_autobot(target, area, callback, msg, accuracy=0.96, frequency=0.1):
             callback()
             # sleep 1 second when matched
             _freq = 1
+
         time.sleep(_freq)
+        # reset
+        _freq = frequency
     print('@test: vision thread %s ended.' % msg)
 
 def prepare_qrcodes():
@@ -259,44 +294,48 @@ def press_pay_btn():
     # wait for a bit in case passwords input activity haven't showup
     # time.sleep(0.1)
 
-def fill_sec_keys():
+def enter_sec_keys():
     global secert_pwd
 
     print('@test: Entering secret keys for payment')
     _sec_key = secert_pwd
     # input passwords
-    for _mos_p in _sec_key:
+    print('@test: entering password %s' % _sec_key)
+    # for _mos_p in _sec_key:
         # Entering the keys
-        pyautogui.press(_mos_p)
+        # pyautogui.press(_mos_p)
         # print(_mos_p)
 
 def scan():
-    pyautogui.moveTo(x=1892, y=120)
+    pyautogui.moveTo(x=mouse_pos['scan']['x'], y=mouse_pos['scan']['y'])
     pyautogui.click()
     print('@test: start scanning')
 
-def close():
-    pyautogui.moveTo(x=1880, y=119)
+def scan_failed():
+    pyautogui.moveTo(x=mouse_pos['scan_failed']['x'], y=mouse_pos['scan_failed']['y'])
     pyautogui.click()
-    time.sleep(0.2)
-    pyautogui.moveTo(x=1845, y=114)
+    print('@test: dismiss failed scan result')
+
+def close():
+    pyautogui.moveTo(x=mouse_pos['payment_done']['x'], y=mouse_pos['payment_done']['y'])
     pyautogui.click()
     print('@test: close done page')
+    time.sleep(0.2)
+    common_close_action()
 
-def failed():
-    pyautogui.moveTo(x=1845, y=114)
+def common_close_action():
+    pyautogui.moveTo(x=mouse_pos['payment_failed']['x'], y=mouse_pos['payment_failed']['y'])
     pyautogui.click()
-    print('@test: close failed page')
-
-def close_service_page():
-    pyautogui.moveTo(x=1852, y=117)
-    pyautogui.click()
-    print('@test: close services page')
+    print('@test: press on common close button')
 
 def collapse_photo():
     # close the previous qrcode window
-    pyautogui.moveTo(x=645, y=69)
-    pyautogui.click()
+    # pyautogui.moveTo(x=645, y=69)
+    # pyautogui.click()
+    try:
+        subprocess.call(['taskkill', '/F', '/IM', 'Microsoft.Photos.exe'])
+    except Exception as err:
+        pass
 
 # -----------------------------------------------------------------
 
