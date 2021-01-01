@@ -12,32 +12,10 @@ from PIL import ImageTk, Image
 from skimage.metrics import structural_similarity as ssim
 import threading
 import subprocess
+import json
+import copy
+from pynput.mouse import Button, Listener
 
-# print(kb.key_to_scan_codes('1'))
-# home_for_scan = cv2.imread('samples/home.png')
-# home_for_scan = cv2.cvtColor(home_for_scan, cv2.COLOR_BGR2GRAY)
-
-# !!current not using it!!
-# @var budget: 
-#   > end program when ran out of budget
-#   > assigned through terminal argument
-budget = 10
-# @var stock:
-#   > end program when there is no more links
-stock = 0
-def set_stock(_data):
-    """
-    @param _data: []
-    return the length of the list
-    """
-    return len(_data)
-# @var on_hold_links:
-#   > stores a list of payment links that took too long to respond
-#   > for try again later
-on_hold_links = []
-# @var tracker_id:
-#   > keep tracking of which payment is in progress
-tracker_id = 0
 # @var signal:
 #   > controls the state (running | ending) of this program
 signal = True
@@ -59,44 +37,83 @@ sample_failed_symble = None
 sample_pwd_page = None
 sample_keypad_page  = None
 
+# config
+config_dict = dict()
+config_json = 'samples_config.json'
 
-# screen resolution of the machine
-screenSize = pyautogui.size()
-# print(screenSize)
 
-init_pos = {'x': 728.5, 'y': 52}
+# ideal_marker = config_dict['main']['marker']
+ideal_marker = {}
+current_marker =  {}
+hot_area = {}
+mouse_pos = {}
+delta = {'x': 0, 'y': 0}
 
-def get_init_coords():
-    """
-    defines the initial coordinates by clicking on screen with mouse
-    """
-    pass
+def get_marker(x, y, button, pressed):
+    global current_marker
+    if button == Button.left and pressed:
+        current_marker = {'x': x, 'y': y}
+        print('current marker: %s' % current_marker)
+        return False
 
-am_width = screenSize.width - (init_pos['x'] * 2)
-am_height = screenSize.height - init_pos['y']
-# samples_width = 405
-margin_x = 22
+def mount_marker_listener():
+    _listener = Listener(on_click=get_marker)
+    _listener.start()
+    print('marker listener started.')
+    print('click on the top left corner of the app.')
+    kb.wait('p')
 
-hot_area = {
-    'pay_btn': {'x': init_pos['x'], 'y': 978, 'w': am_width, 'h': 102},
-    'pay_pwd': {'x': init_pos['x'], 'y': 325, 'w': am_width, 'h': 262},
-    'pay_keypad': {'x': init_pos['x'], 'y': 825, 'w': am_width, 'h': 255},
-    'pay_done': {'x': init_pos['x'], 'y':88, 'w': am_width, 'h': 88},
-    'pay_failed': {'x': init_pos['x'], 'y': 160, 'w': am_width, 'h': 220},
-    'pay_services': {'x': init_pos['x'], 'y': 92, 'w': am_width, 'h': 52},
-    'pay_scan': {'x': init_pos['x'], 'y': 92, 'w': am_width, 'h': 52},
-    'pay_scan_failed': {'x': (init_pos['x'] + 45), 'y': 477, 'w': (am_width - 45*2), 'h': 212}
+def cal_delta():
+    global ideal_marker, current_marker, delta
+    mount_marker_listener()
 
-}
+    _dx = current_marker['x'] - ideal_marker['x']
+    _dy = current_marker['y'] - ideal_marker['y']
+    delta = {'x': _dx, 'y': _dy}
+    print('delta: ',  delta)
 
-mouse_pos = {
-    'pay': {'x': (init_pos['x'] + am_width / 2), 'y': 982},
-    'payment_done': {'x':(init_pos['x'] + am_width - margin_x), 'y': (88 + 88 /2)},
-    'payment_failed': {'x': 1118, 'y': 114},
-    'scan': {'x': (init_pos['x'] + am_width - margin_x), 'y': 114},
-    'scan_failed': {'x': (hot_area['pay_scan_failed']['x'] + hot_area['pay_scan_failed']['w'] / 2),
-    'y': (hot_area['pay_scan_failed']['y'] + hot_area['pay_scan_failed']['h'] * 3/4)}
-}
+def init_coords():
+    global hot_area, mouse_pos, config_dict, delta
+
+    hot_area = {
+        'pay_btn': {'x': (config_dict['main']['pay_btn']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_btn']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_btn']['region']['w'], 'h': config_dict['main']['pay_btn']['region']['h']},
+        'pay_pwd': {'x': (config_dict['main']['pay_pwd']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_pwd']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_pwd']['region']['w'], 'h': config_dict['main']['pay_pwd']['region']['h']},
+        # 'pay_keypad': {'x': (config_dict['main']['pay_keypad']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_keypad']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_keypad']['region']['w'], 'h': config_dict['main']['pay_keypad']['region']['h']},
+        'pay_done': {'x': (config_dict['main']['pay_done']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_done']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_done']['region']['w'], 'h': config_dict['main']['pay_done']['region']['h']},
+        'pay_failed': {'x': (config_dict['main']['pay_failed']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_failed']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_failed']['region']['w'], 'h': config_dict['main']['pay_failed']['region']['h']},
+        'pay_services': {'x': (config_dict['main']['pay_services']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_services']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_services']['region']['w'], 'h': config_dict['main']['pay_services']['region']['h']},
+        'pay_scan': {'x': (config_dict['main']['pay_scan']['region']['x'] + delta['x']), 'y': (config_dict['main']['pay_scan']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_scan']['region']['w'], 'h': config_dict['main']['pay_scan']['region']['h']},
+        # 'pay_scan_failed': {'x': (config_dict['main']['pay_scan_failed']['region']['x'], 'y': (config_dict['main']['pay_scan_failed']['region']['y'] + delta['y']), 'w': config_dict['main']['pay_scan_failed']['region']['w'], 'h': config_dict['main']['pay_scan_failed']['region']['h']}
+
+    }
+
+    print('original: %s' % config_dict['main']['pay_scan']['region']['x'])
+    _dlt = config_dict['main']['pay_scan']['region']['x'] + delta['x']
+    print('has been moved: %s' % _dlt)
+
+    mouse_pos = {
+        'pay': {'x': (config_dict['main']['pay_btn']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_btn']['zoom']['y'] + delta['y'])},
+        'payment_done': {'x': (config_dict['main']['pay_done']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_done']['zoom']['y'] + delta['y'])},
+        'payment_failed': {'x': (config_dict['main']['pay_failed']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_failed']['zoom']['y'] + delta['y'])},
+        'scan': {'x': (config_dict['main']['pay_scan']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_scan']['zoom']['y'] + delta['y'])},
+        # 'scan_failed': {'x': (config_dict['main']['pay_scan_failed']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_scan_failed']['zoom']['y'] + delta['y'])}
+        'pay_services': {'x': (config_dict['main']['pay_services']['zoom']['x'] + delta['x']), 'y': (config_dict['main']['pay_services']['zoom']['y'] + delta['y'])}
+    }
+
+def load_samples():
+    global sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_keypad_page, sample_scan_failed_btn 
+    # load the samples into memory
+    print('@test: loading samples into memory...')
+
+    sample_pay_btn =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_btn']['img']), cv2.COLOR_BGR2GRAY) 
+    sample_scan_btn =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_scan']['img']), cv2.COLOR_BGR2GRAY) 
+    # sample_scan_failed_btn =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_scan_failed']['img']), cv2.COLOR_BGR2GRAY) 
+    sample_done_btn =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_done']['img']), cv2.COLOR_BGR2GRAY) 
+    sample_pwd_page =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_pwd']['img']), cv2.COLOR_BGR2GRAY) 
+    # sample_keypad_page =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_keypad']['img']), cv2.COLOR_BGR2GRAY) 
+    sample_failed_symble =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_failed']['img']), cv2.COLOR_BGR2GRAY) 
+    sample_services_page =  cv2.cvtColor(cv2.imread(config_dict['main']['pay_services']['img']), cv2.COLOR_BGR2GRAY) 
+
 
 def mse(imgA, imgB):
     err = np.sum((imgA.astype('float') - imgB.astype('float')) ** 2)
@@ -112,55 +129,58 @@ def cmp_img(imgA, imgB):
 # -----------------------------------------------------------------
 
 def init():
-    global data, d_index, secert_pwd, sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_scan_failed_btn
+    global data, config_dict, ideal_marker, current_marker, d_index, secert_pwd, sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_scan_failed_btn
+    
+    with open(config_json, 'r') as file:
+        config_dict = json.load(file)
+    
+    # ideal_marker = config_dict['main']['marker']
+    # # default to equal if we skip the get marker stage
+    # current_marker = ideal_marker
 
-    secert_pwd = input('please provide your password for the payment...\n>>> ')
-    print('@test: password is: %s' % secert_pwd)
+    # cal_delta()
+
+    init_coords()
     init_data()
     load_samples()
+
     # manually actions
-    kb.add_hotkey('right', prepare_qrcodes)
-    kb.add_hotkey('q', scan)
-    kb.add_hotkey('space', press_pay_btn)
-    kb.add_hotkey('w', close)
-    kb.add_hotkey('e', common_close_action)
     kb.add_hotkey('m', end_thread)
     kb.add_hotkey('r', reload_data)
-    t0 = threading.Thread(target= vision_autobot, 
-        args=(sample_scan_btn, hot_area['pay_scan'], scan, 'watching scan button'))
-    # t1 = threading.Thread(target= vision_autobot, 
-    #     args=(sample_pay_btn, hot_area['pay_btn'], press_pay_btn, 'watching pay button'))
-    # t2 = threading.Thread(target= vision_autobot, 
-    #     args=(sample_done_btn, hot_area['pay_done'], close, 'watching done pay activity'))
-    t3 = threading.Thread(target= vision_autobot, 
-        args=(sample_failed_symble, hot_area['pay_failed'], common_close_action, 'watching failed activity'))
-    t4 = threading.Thread(target= prepare_qrcodes)
-    t5 = threading.Thread(target= vision_autobot, 
-        args=(sample_services_page, hot_area['pay_services'], common_close_action, 'watching services activity'))
-    # t6 = threading.Thread(target= vision_autobot, 
-    #     args=(sample_pwd_page, hot_area['pay_pwd'], enter_sec_keys, 'watching password activity'))
-    t7 = threading.Thread(target= vision_autobot, 
-        args=(sample_scan_failed_btn, hot_area['pay_scan_failed'], scan_failed, 'watching scan failed result'))
 
-    t0.start()
-    # t1.start()
-    # t2.start()
-    t3.start()
-    t4.start()
-    t5.start()
-    # t6.start()
-    t7.start()
+    secert_pwd = input('please provide your password for the payment...\n>>> ')
+    # print('@test: password is: %s' % secert_pwd)
 
-    print('@test: application now functioning!')
+    _thread_pool = create_monitor_threads()
+    t9 = threading.Thread(target= prepare_qrcodes)
+    t9.start()
+    _thread_pool.append(t9)
+    # print('@test: application now functioning!')
+    # exit the program
     kb.wait('backspace')
-    t0.join()
-    # t1.join()
-    # t2.join()
-    t3.join()
-    t4.join()
-    t5.join()
-    # t6.join()
-    t7.join()
+    # end all the threads
+    for _t in _thread_pool:
+        _t.join()
+
+def create_monitor_threads():
+    # creating a list of threads that constantly monitoring
+    # the changes of defined area in order to find a match
+    _thread_pool = []
+    _thread_args = [
+        (sample_scan_btn, 'pay_scan', scan, 'watching scan button'),
+        (sample_pay_btn, 'pay_btn', press_pay_btn, 'watching pay button'),
+        (sample_done_btn, 'pay_done', close, 'watching done pay activity'),
+        (sample_failed_symble, 'pay_failed', common_close_action, 'watching failed activity'),
+        (sample_services_page, 'pay_services', common_close_action, 'watching services activity'),
+        (sample_pwd_page, 'pay_pwd', enter_sec_keys, 'watching password activity')
+
+    ]
+    for _args in _thread_args:
+        _t = threading.Thread(target= vision_autobot, args=(_args[0], hot_area[_args[1]], _args[2], _args[3]))
+        _t.start()
+        _thread_pool.append(_t)
+    return _thread_pool
+    
 
 def reload_data():
     init_data()
@@ -183,19 +203,7 @@ def read_data():
 def end_thread():
     global signal
     signal = False
-
-def load_samples():
-    global sample_pay_btn, sample_scan_btn, sample_done_btn, sample_failed_symble, sample_services_page, sample_pwd_page, sample_keypad_page, sample_scan_failed_btn 
-    # load the samples into memory
-    print('@test: loading samples into memory...')
-    sample_pay_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_btn_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_scan_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_scan_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_scan_failed_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_scan_failed_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_done_btn =  cv2.cvtColor(cv2.imread('samples/type2/pay_done_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_pwd_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_pwd_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_keypad_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_keypad_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_failed_symble =  cv2.cvtColor(cv2.imread('samples/type2/pay_failed_color.png'), cv2.COLOR_BGR2GRAY) 
-    sample_services_page =  cv2.cvtColor(cv2.imread('samples/type2/pay_services_color.png'), cv2.COLOR_BGR2GRAY) 
+    print('@test: thread paused. press [backspace] to end and exit')
 
 # @todo when [frequency is too fast clicking wrong position will happen]
 def vision_autobot(target, area, callback, msg, accuracy=0.94, frequency=0.1):
@@ -224,7 +232,7 @@ def vision_autobot(target, area, callback, msg, accuracy=0.94, frequency=0.1):
     _h = area['h']
 
     _accuracy = accuracy
-    _freq = frequency
+    _freq = copy.deepcopy(frequency)
     _sample_gray = target
     while signal:
         _target = pyautogui.screenshot(region=(_x, _y, _w, _h))
@@ -232,19 +240,24 @@ def vision_autobot(target, area, callback, msg, accuracy=0.94, frequency=0.1):
         _m = cmp_img(_sample_gray, _target_gray)
 
         if _m > _accuracy:
-            print('@test: similarity: %0.2f' % _m)
+            # print('@test: similarity: %0.2f' % _m)
             callback()
             # sleep 1 second when matched
-            _freq = 1
+            _freq = 0.3
 
         time.sleep(_freq)
         # reset
-        _freq = frequency
+        _freq = copy.deepcopy(frequency)
     print('@test: vision thread %s ended.' % msg)
+
+def qr_get_ready():
+    global qr_gen_status
+    # telling the thread to prepare the new qr code for scanning
+    qr_gen_status = True
+    print('@test next qr code is ready')
 
 def prepare_qrcodes():
     global data, d_index, qr_gen_status, signal
-    _link = data[d_index]
 
     while signal:
         if qr_gen_status:
@@ -252,14 +265,18 @@ def prepare_qrcodes():
                 # No more Jobs entering hibernation mode
                 qr_gen_status = False
                 print('@test: No more data!!')
+                # terminate
+                end_thread()
             else:
+                # get a new link
+                _link = data[d_index]
                 if not _link or _link.isspace():
                     pass
                 else:
-                    # scan()
+                    # print('ling: %s' % _link)
+                    print('@test: preparing QRcode number %i' % d_index)
                     img = gen_qr(_link)
                     img.show()
-                    print('@test: preparing QRcode number %i' % d_index)
                     d_index -= 1
                     qr_gen_status = False
         time.sleep(1)
@@ -289,53 +306,51 @@ def press_pay_btn():
     pyautogui.click()
     # the old qr code has been used dismiss it
     collapse_photo()
-    # telling the thread to prepare the new qr code for scanning
-    qr_gen_status = True
     # wait for a bit in case passwords input activity haven't showup
     # time.sleep(0.1)
 
 def enter_sec_keys():
     global secert_pwd
 
-    print('@test: Entering secret keys for payment')
+    # print('@test: Entering secret keys for payment')
     _sec_key = secert_pwd
     # input passwords
-    print('@test: entering password %s' % _sec_key)
-    # for _mos_p in _sec_key:
+    # print('@test: entering password %s' % _sec_key)
+    for _key in _sec_key:
         # Entering the keys
-        # pyautogui.press(_mos_p)
-        # print(_mos_p)
+        pyautogui.press(_key)
+        # print(_key)
 
 def scan():
     pyautogui.moveTo(x=mouse_pos['scan']['x'], y=mouse_pos['scan']['y'])
     pyautogui.click()
-    print('@test: start scanning')
+    # print('@test: start scanning')
 
 def scan_failed():
     pyautogui.moveTo(x=mouse_pos['scan_failed']['x'], y=mouse_pos['scan_failed']['y'])
     pyautogui.click()
+    collapse_photo()
     print('@test: dismiss failed scan result')
 
 def close():
+    qr_get_ready()
     pyautogui.moveTo(x=mouse_pos['payment_done']['x'], y=mouse_pos['payment_done']['y'])
     pyautogui.click()
-    print('@test: close done page')
+    # print('@test: close done page')
     time.sleep(0.2)
     common_close_action()
 
 def common_close_action():
+    qr_get_ready()
     pyautogui.moveTo(x=mouse_pos['payment_failed']['x'], y=mouse_pos['payment_failed']['y'])
     pyautogui.click()
-    print('@test: press on common close button')
+    # collapse_photo()
+    # print('@test: press on common close button')
 
 def collapse_photo():
     # close the previous qrcode window
-    # pyautogui.moveTo(x=645, y=69)
-    # pyautogui.click()
-    try:
-        subprocess.call(['taskkill', '/F', '/IM', 'Microsoft.Photos.exe'])
-    except Exception as err:
-        pass
+    pyautogui.moveTo(x=529, y=78)
+    pyautogui.click()
 
 # -----------------------------------------------------------------
 
